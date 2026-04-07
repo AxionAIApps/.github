@@ -210,20 +210,28 @@ jobs:
 
       - name: Apply version from git tag
         run: |
-          # If a v* tag triggered this run, extract version and write to pubspec
+          # Read current build number from pubspec as floor
+          CURRENT_BUILD=$(grep '^version:' pubspec.yaml | sed 's/.*+//')
+          # Use whichever is higher: pubspec build number or run_number
+          # This prevents Play Store "version code already used" errors
+          RUN_NUM="${{ github.run_number }}"
+          if [ "$CURRENT_BUILD" -gt "$RUN_NUM" ] 2>/dev/null; then
+            BUILD_NUMBER=$((CURRENT_BUILD + 1))
+          else
+            BUILD_NUMBER="$RUN_NUM"
+          fi
+
+          # If a v* tag triggered this run, extract version from tag
           TAG="${GITHUB_REF##*/}"
           if [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
             VERSION="${BASH_REMATCH[1]}"
-            BUILD_NUMBER="${{ github.run_number }}"
-            echo "Applying version from tag: ${VERSION}+${BUILD_NUMBER}"
-            sed -i "s/^version: .*/version: ${VERSION}+${BUILD_NUMBER}/" pubspec.yaml
           else
-            # No version tag — read existing pubspec version, just update build number
-            CURRENT=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
-            BUILD_NUMBER="${{ github.run_number }}"
-            echo "No version tag — using pubspec version: ${CURRENT}+${BUILD_NUMBER}"
-            sed -i "s/^version: .*/version: ${CURRENT}+${BUILD_NUMBER}/" pubspec.yaml
+            # No version tag — read existing pubspec version
+            VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
           fi
+
+          echo "Setting version: ${VERSION}+${BUILD_NUMBER}"
+          sed -i "s/^version: .*/version: ${VERSION}+${BUILD_NUMBER}/" pubspec.yaml
           grep '^version:' pubspec.yaml
 
       - name: Set up keystore
@@ -293,8 +301,14 @@ jobs:
           echo '${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}' > ~/.secrets/play-sa-v2.json
 
       - name: Sync Android metadata to Play Store
+        env:
+          SUPPLY_JSON_KEY: ~/.secrets/play-sa-v2.json
         run: |
           if [ -d "fastlane/metadata/android" ]; then
+            # Override Appfile json_key_file to prevent validation error
+            if [ -f fastlane/Appfile ]; then
+              sed -i 's|json_key_file.*|json_key_file("~/.secrets/play-sa-v2.json")|' fastlane/Appfile
+            fi
             bundle exec fastlane supply \
               --json_key ~/.secrets/play-sa-v2.json \
               --package_name "${{ inputs.bundle_id }}" \
