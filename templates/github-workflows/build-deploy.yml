@@ -1,0 +1,27 @@
+name: Build & Deploy
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: 'Play Store track'
+        type: choice
+        options: [internal, alpha, beta, production]
+        default: internal
+  push:
+    branches: [main]
+    paths:
+      - 'pubspec.yaml'
+      - 'lib/**'
+      - 'android/**'
+      - 'ios/**'
+      - 'test/**'
+
+jobs:
+  deploy:
+    uses: AxionAIApps/.github/.github/workflows/flutter-build-deploy.yml@main
+    with:
+      app_name: APPNAME
+      bundle_id: com.axionaiapps.APPNAME
+      platform: android
+      track: ${{ inputs.track || 'internal' }}
+    secrets: inherit

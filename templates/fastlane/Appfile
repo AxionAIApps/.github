@@ -1,0 +1,12 @@
+# ============================================================================
+# Axion AI — Per-App Fastlane Config
+# ============================================================================
+# Replace the placeholder values below with your app's identifiers.
+# This is the ONLY file that differs between apps — Fastfile is shared.
+# ============================================================================
+
+json_key_file("~/.secrets/play-sa-v2.json")
+package_name("com.axionaiapps.APPNAME")
+
+app_identifier("com.axionaiapps.APPNAME")
+apple_id("akhamitkar@axionaiapps.com")

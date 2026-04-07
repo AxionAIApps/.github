@@ -1,0 +1,178 @@
+# ============================================================================
+# Axion AI — Standard Fastfile Template
+# ============================================================================
+# All Axion apps use this exact Fastfile. The only per-app config is in Appfile:
+#   - json_key_file (Play Store service account)
+#   - package_name (Android applicationId)
+#   - app_identifier (iOS bundle ID)
+#   - apple_id (Apple developer email)
+#
+# To set up a new app:
+#   1. Copy this Fastfile to <app>/fastlane/Fastfile
+#   2. Create an Appfile with the 4 fields above
+#   3. Create a Gemfile with: gem "fastlane" + gem 'httpclient', '2.8.3'
+#   4. Run: bundle install
+# ============================================================================
+
+default_platform(:ios)
+
+project_root = File.expand_path('..', __dir__)
+
+# ─── App Store Connect API key (Admin — shared across all apps) ────────────
+
+ASC_API_KEY = app_store_connect_api_key(
+  key_id: "S8QJP79724",
+  issuer_id: "e124a242-440c-4be4-af03-657021c25f66",
+  key_filepath: File.expand_path("~/.secrets/AuthKey_S8QJP79724.p8")
+)
+
+# ─── Helpers ───────────────────────────────────────────────────────────────
+
+def app_version_from_pubspec
+  pubspec = File.read(File.expand_path("../pubspec.yaml", __dir__))
+  pubspec.match(/version:\s*(\S+)\+/)[1]
+end
+
+def app_name_from_pubspec
+  pubspec = File.read(File.expand_path("../pubspec.yaml", __dir__))
+  pubspec.match(/^name:\s*(\S+)/)[1]
+end
+
+# ─── iOS ────────────────────────────────────────────────────────────────────
+
+platform :ios do
+  desc "Sync certificates and profiles (read-only)"
+  lane :certs do
+    match(
+      type: "appstore",
+      app_identifier: CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier),
+      readonly: true,
+      git_url: "https://github.com/AxionAIApps/certs.git",
+      git_basic_authorization: Base64.strict_encode64("#{ENV['GITHUB_USER']}:#{ENV['GITHUB_TOKEN']}")
+    )
+  end
+
+  desc "Upload iOS metadata and screenshots to App Store Connect"
+  lane :deliver_metadata do
+    deliver(
+      api_key: ASC_API_KEY,
+      skip_binary_upload: true,
+      skip_metadata: false,
+      skip_screenshots: false,
+      overwrite_screenshots: true,
+      force: true,
+      run_precheck_before_submit: false,
+      metadata_path: "fastlane/metadata",
+      screenshots_path: "fastlane/screenshots",
+      app_version: app_version_from_pubspec
+    )
+    puts "#{app_name_from_pubspec} iOS metadata and screenshots uploaded to App Store Connect"
+  end
+
+  desc "Upload iOS screenshots only"
+  lane :upload_screenshots do
+    deliver(
+      api_key: ASC_API_KEY,
+      skip_binary_upload: true,
+      skip_metadata: true,
+      skip_screenshots: false,
+      overwrite_screenshots: true,
+      force: true,
+      run_precheck_before_submit: false,
+      screenshots_path: "fastlane/screenshots"
+    )
+    puts "#{app_name_from_pubspec} iOS screenshots uploaded to App Store Connect"
+  end
+
+  desc "Capture App Store screenshots via integration test"
+  lane :capture_screenshots do
+    sh("cd #{project_root} && ./scripts/capture_ios_screenshots.sh")
+    puts "#{app_name_from_pubspec} iOS screenshots captured"
+  end
+
+  desc "Capture and upload screenshots in one step"
+  lane :screenshots do
+    capture_screenshots
+    upload_screenshots
+  end
+
+  desc "Build and upload to TestFlight (beta)"
+  lane :beta do
+    certs
+    sh("cd #{project_root} && flutter build ipa --release --export-method=app-store 2>&1")
+    ipa_path = Dir["#{project_root}/build/ios/ipa/*.ipa"].first
+    UI.user_error!("IPA not found after flutter build ipa") unless ipa_path
+    upload_to_testflight(
+      api_key: ASC_API_KEY,
+      ipa: ipa_path,
+      skip_waiting_for_build_processing: true,
+      changelog: "Internal build — automated via Fastlane"
+    )
+    puts "#{app_name_from_pubspec} iOS build uploaded to TestFlight"
+  end
+end
+
+# ─── Android ────────────────────────────────────────────────────────────────
+
+platform :android do
+  desc "Upload Android metadata and screenshots to Play Store"
+  lane :supply_metadata do
+    upload_to_play_store(
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_metadata: false,
+      skip_upload_changelogs: true,
+      skip_upload_images: false,
+      skip_upload_screenshots: false,
+      sync_image_upload: true,
+      metadata_path: "fastlane/metadata/android"
+    )
+    puts "#{app_name_from_pubspec} Android metadata and screenshots uploaded to Play Store"
+  end
+
+  desc "Upload to Play Store internal track (draft)"
+  lane :internal do
+    sh("cd #{project_root} && flutter build appbundle --release")
+    upload_to_play_store(
+      track: "internal",
+      aab: "#{project_root}/build/app/outputs/bundle/release/app-release.aab",
+      release_status: "draft",
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+    puts "#{app_name_from_pubspec} Android uploaded to internal track"
+  end
+
+  desc "Promote internal to open testing (beta)"
+  lane :open_testing do
+    upload_to_play_store(
+      track: "internal",
+      track_promote_to: "beta",
+      release_status: "completed",
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+    puts "#{app_name_from_pubspec} promoted to open testing"
+  end
+
+  desc "Deploy to production (draft)"
+  lane :deploy do
+    sh("cd #{project_root} && flutter build appbundle --release")
+    upload_to_play_store(
+      track: "production",
+      aab: "#{project_root}/build/app/outputs/bundle/release/app-release.aab",
+      release_status: "draft",
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+    puts "#{app_name_from_pubspec} Android submitted to production (draft)"
+  end
+end
