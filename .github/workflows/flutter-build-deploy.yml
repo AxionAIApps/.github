@@ -328,19 +328,29 @@ jobs:
           }
           ASCEOF
 
+      - name: Set up CI keychain
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/ci-signing.keychain-db"
+          # Create a temporary keychain for CI signing
+          security create-keychain -p ci-build "$KEYCHAIN_PATH" 2>/dev/null || true
+          security unlock-keychain -p ci-build "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          # Add CI keychain to search list (keep login keychain too)
+          security list-keychains -d user -s "$KEYCHAIN_PATH" ~/Library/Keychains/login.keychain-db
+          security default-keychain -s "$KEYCHAIN_PATH"
+
       - name: Sync certificates (Fastlane match)
         env:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           GIT_URL: https://x-access-token:${{ secrets.GH_PRIVATE_REPO_TOKEN }}@github.com/AxionAIApps/certs.git
         run: |
-          if [ -f Gemfile ]; then
-            bundle install
-          fi
           bundle exec fastlane match appstore \
             --app_identifier "${{ inputs.bundle_id }}" \
             --readonly true \
             --git_url "$GIT_URL" \
-            --api_key_path ~/.secrets/asc-api-key-ci.json
+            --api_key_path ~/.secrets/asc-api-key-ci.json \
+            --keychain_name ci-signing.keychain-db \
+            --keychain_password ci-build
 
       - name: Build iOS IPA
         run: flutter build ipa --release --export-method=app-store
@@ -362,7 +372,11 @@ jobs:
 
       - name: Cleanup CI credentials
         if: always()
-        run: rm -f ~/.secrets/asc-api-key-ci.json
+        run: |
+          rm -f ~/.secrets/asc-api-key-ci.json
+          # Restore default keychain and remove CI keychain
+          security default-keychain -s ~/Library/Keychains/login.keychain-db 2>/dev/null || true
+          security delete-keychain "$HOME/Library/Keychains/ci-signing.keychain-db" 2>/dev/null || true
 
   # ─── Metadata Sync ──────────────────────────────────────────────────────
   metadata-sync:
