@@ -199,6 +199,24 @@ jobs:
       - name: Generate localizations
         run: flutter gen-l10n || true
 
+      - name: Apply version from git tag
+        run: |
+          # If a v* tag triggered this run, extract version and write to pubspec
+          TAG="${GITHUB_REF##*/}"
+          if [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            BUILD_NUMBER="${{ github.run_number }}"
+            echo "Applying version from tag: ${VERSION}+${BUILD_NUMBER}"
+            sed -i "s/^version: .*/version: ${VERSION}+${BUILD_NUMBER}/" pubspec.yaml
+          else
+            # No version tag — read existing pubspec version, just update build number
+            CURRENT=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
+            BUILD_NUMBER="${{ github.run_number }}"
+            echo "No version tag — using pubspec version: ${CURRENT}+${BUILD_NUMBER}"
+            sed -i "s/^version: .*/version: ${CURRENT}+${BUILD_NUMBER}/" pubspec.yaml
+          fi
+          grep '^version:' pubspec.yaml
+
       - name: Set up keystore
         env:
           KEYSTORE_BASE64: ${{ secrets[format('{0}_KEYSTORE_BASE64', inputs.app_name)] }}
