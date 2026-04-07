@@ -272,10 +272,93 @@ jobs:
           track: ${{ inputs.track }}
           status: draft
 
-  # ─── Metadata Sync (Android only for now — iOS in Sprint 2) ──────────────
+  # ─── Build iOS IPA + Upload to TestFlight ─────────────────────────────────
+  build-ios:
+    name: Build & Upload iOS
+    if: ${{ inputs.platform == 'ios' || inputs.platform == 'both' }}
+    runs-on: [self-hosted, macOS]
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Git for private packages
+        run: git config --global url."https://x-access-token:${{ secrets.GH_PRIVATE_REPO_TOKEN }}@github.com/".insteadOf "git@github.com:"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate localizations
+        run: flutter gen-l10n || true
+
+      - name: Apply version
+        run: |
+          CURRENT_BUILD=$(grep '^version:' pubspec.yaml | sed 's/.*+//')
+          RUN_NUM="${{ github.run_number }}"
+          if [ "$CURRENT_BUILD" -gt "$RUN_NUM" ] 2>/dev/null; then
+            BUILD_NUMBER=$((CURRENT_BUILD + 1))
+          else
+            BUILD_NUMBER="$RUN_NUM"
+          fi
+          TAG="${GITHUB_REF##*/}"
+          if [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+          else
+            VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
+          fi
+          echo "Setting version: ${VERSION}+${BUILD_NUMBER}"
+          sed -i '' "s/^version: .*/version: ${VERSION}+${BUILD_NUMBER}/" pubspec.yaml
+          grep '^version:' pubspec.yaml
+
+      - name: Write ASC API key
+        run: |
+          mkdir -p ~/.secrets
+          cat > ~/.secrets/asc-api-key-ci.json <<EOF
+          {
+            "key_id": "${{ secrets.ASC_KEY_ID }}",
+            "issuer_id": "${{ secrets.ASC_ISSUER_ID }}",
+            "key": "${{ secrets.ASC_API_KEY_CONTENT }}"
+          }
+          EOF
+
+      - name: Sync certificates (Fastlane match)
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          GIT_URL: https://x-access-token:${{ secrets.GH_PRIVATE_REPO_TOKEN }}@github.com/AxionAIApps/certs.git
+        run: |
+          if [ -f Gemfile ]; then
+            bundle install
+          fi
+          bundle exec fastlane match appstore \
+            --app_identifier "${{ inputs.bundle_id }}" \
+            --readonly true \
+            --git_url "$GIT_URL" \
+            --api_key_path ~/.secrets/asc-api-key-ci.json
+
+      - name: Build iOS IPA
+        run: flutter build ipa --release --export-method=app-store
+
+      - name: Upload to TestFlight
+        run: |
+          IPA_PATH=$(find build/ios/ipa -name "*.ipa" -type f | head -1)
+          if [ -z "$IPA_PATH" ]; then
+            echo "::error::No IPA found after build"
+            exit 1
+          fi
+          echo "Uploading: $IPA_PATH"
+          bundle exec fastlane pilot upload \
+            --ipa "$IPA_PATH" \
+            --api_key_path ~/.secrets/asc-api-key-ci.json \
+            --skip_waiting_for_build_processing true \
+            --changelog "Automated build via CI"
+          echo "## iOS IPA uploaded to TestFlight" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup CI credentials
+        if: always()
+        run: rm -f ~/.secrets/asc-api-key-ci.json
+
+  # ─── Metadata Sync ──────────────────────────────────────────────────────
   metadata-sync:
     name: Sync Store Metadata
-    if: ${{ inputs.platform == 'android' || inputs.platform == 'both' }}
     runs-on: ubuntu-latest
     needs: unit-tests
     steps:
