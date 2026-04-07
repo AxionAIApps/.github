@@ -287,12 +287,16 @@ jobs:
             gem install fastlane
           fi
 
+      - name: Write Play Store credentials
+        run: |
+          mkdir -p ~/.secrets
+          echo '${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}' > ~/.secrets/play-sa-v2.json
+
       - name: Sync Android metadata to Play Store
-        env:
-          SUPPLY_JSON_KEY_DATA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
         run: |
           if [ -d "fastlane/metadata/android" ]; then
             bundle exec fastlane supply \
+              --json_key ~/.secrets/play-sa-v2.json \
               --package_name "${{ inputs.bundle_id }}" \
               --skip_upload_apk \
               --skip_upload_aab \
