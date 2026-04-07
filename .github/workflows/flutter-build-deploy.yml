@@ -284,6 +284,11 @@ jobs:
       - name: Configure Git for private packages
         run: git config --global url."https://x-access-token:${{ secrets.GH_PRIVATE_REPO_TOKEN }}@github.com/".insteadOf "git@github.com:"
 
+      - name: Kill stale builds
+        run: |
+          killall -9 xcodebuild dartaotruntime 2>/dev/null || true
+          echo "Cleared stale build processes"
+
       - name: Install dependencies
         run: flutter pub get
 
@@ -353,6 +358,7 @@ jobs:
             --keychain_password ci-build
 
       - name: Build iOS IPA
+        timeout-minutes: 30
         run: flutter build ipa --release --export-method=app-store
 
       - name: Upload to TestFlight
