@@ -309,16 +309,24 @@ jobs:
           sed -i '' "s/^version: .*/version: ${VERSION}+${BUILD_NUMBER}/" pubspec.yaml
           grep '^version:' pubspec.yaml
 
+      - name: Install Fastlane
+        run: |
+          if [ -f Gemfile ]; then
+            bundle install
+          else
+            gem install fastlane
+          fi
+
       - name: Write ASC API key
         run: |
           mkdir -p ~/.secrets
-          cat > ~/.secrets/asc-api-key-ci.json <<EOF
+          cat > ~/.secrets/asc-api-key-ci.json <<ASCEOF
           {
             "key_id": "${{ secrets.ASC_KEY_ID }}",
             "issuer_id": "${{ secrets.ASC_ISSUER_ID }}",
             "key": "${{ secrets.ASC_API_KEY_CONTENT }}"
           }
-          EOF
+          ASCEOF
 
       - name: Sync certificates (Fastlane match)
         env:
