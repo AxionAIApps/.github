@@ -269,6 +269,17 @@ jobs:
           storeFile=../keystore/release.keystore
           EOF
 
+      - name: Remove duplicate ic_launcher_background (GOTCHA)
+        run: |
+          # flutter_launcher_icons + meta.py both generate this file,
+          # conflicting with colors.xml. Delete it if colors.xml exists.
+          BG_FILE="android/app/src/main/res/values/ic_launcher_background.xml"
+          COLORS_FILE="android/app/src/main/res/values/colors.xml"
+          if [ -f "$BG_FILE" ] && [ -f "$COLORS_FILE" ]; then
+            echo "Removing duplicate $BG_FILE (defined in colors.xml)"
+            rm "$BG_FILE"
+          fi
+
       - name: Build Android release AAB
         run: flutter build appbundle --release
 
@@ -338,15 +349,22 @@ jobs:
           fi
 
       - name: Write ASC API key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_API_KEY_CONTENT }}
         run: |
           mkdir -p ~/.secrets
-          cat > ~/.secrets/asc-api-key-ci.json <<ASCEOF
-          {
-            "key_id": "${{ secrets.ASC_KEY_ID }}",
-            "issuer_id": "${{ secrets.ASC_ISSUER_ID }}",
-            "key": "${{ secrets.ASC_API_KEY_CONTENT }}"
+          python3 -c "
+          import json, os
+          data = {
+            'key_id': os.environ['ASC_KEY_ID'],
+            'issuer_id': os.environ['ASC_ISSUER_ID'],
+            'key': os.environ['ASC_KEY_CONTENT']
           }
-          ASCEOF
+          with open(os.path.expanduser('~/.secrets/asc-api-key-ci.json'), 'w') as f:
+            json.dump(data, f)
+          "
 
       - name: Set up CI keychain
         run: |
