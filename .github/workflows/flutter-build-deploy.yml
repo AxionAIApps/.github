@@ -55,6 +55,11 @@ on:
         required: false
         type: number
         default: 80
+      coverage_excludes:
+        description: 'Additional lcov exclude patterns for hardware-bound files (space-separated)'
+        required: false
+        type: string
+        default: ''
       run_maestro:
         description: 'Run Maestro smoke tests (non-blocking)'
         required: false
@@ -100,9 +105,13 @@ jobs:
             sudo apt-get update && sudo apt-get install -y lcov
           fi
 
-          # Clean generated code from coverage
+          # Clean generated code + hardware-bound files from coverage
+          EXCLUDE_ARGS="lib/l10n/* *.g.dart *.freezed.dart"
+          if [ -n "${{ inputs.coverage_excludes }}" ]; then
+            EXCLUDE_ARGS="$EXCLUDE_ARGS ${{ inputs.coverage_excludes }}"
+          fi
           lcov --remove coverage/lcov.info \
-            'lib/l10n/*' '*.g.dart' '*.freezed.dart' \
+            $EXCLUDE_ARGS \
             -o coverage/lcov_cleaned.info \
             --ignore-errors unused
 
