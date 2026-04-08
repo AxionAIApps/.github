@@ -11,7 +11,8 @@
 #       with:
 #         app_name: healthbridge
 #         bundle_id: com.axionaiapps.healthbridge
-#         platform: android
+#         ios_bundle_id: com.axionaiapps.healthbridge  # optional, defaults to bundle_id
+#         platform: both
 #         track: internal
 #       secrets: inherit
 # ============================================================================
@@ -26,9 +27,14 @@ on:
         required: true
         type: string
       bundle_id:
-        description: 'Android package name / iOS bundle ID'
+        description: 'Android package name (used for Play Store upload)'
         required: true
         type: string
+      ios_bundle_id:
+        description: 'iOS bundle ID (defaults to bundle_id if not set)'
+        required: false
+        type: string
+        default: ''
       platform:
         description: 'Target platform: android, ios, or both'
         required: false
@@ -348,9 +354,10 @@ jobs:
         env:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           GIT_URL: https://x-access-token:${{ secrets.GH_PRIVATE_REPO_TOKEN }}@github.com/AxionAIApps/certs.git
+          IOS_BUNDLE_ID: ${{ inputs.ios_bundle_id != '' && inputs.ios_bundle_id || inputs.bundle_id }}
         run: |
           bundle exec fastlane match appstore \
-            --app_identifier "${{ inputs.bundle_id }}" \
+            --app_identifier "$IOS_BUNDLE_ID" \
             --readonly true \
             --git_url "$GIT_URL" \
             --api_key_path ~/.secrets/asc-api-key-ci.json \
